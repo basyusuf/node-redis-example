@@ -3,13 +3,14 @@ const redis = require('redis');
 const util = require('util');
 const redisUrl = "redis://127.0.0.1:6379";
 const client = redis.createClient(redisUrl);
-client.get = util.promisify(client.get);
+client.hget = util.promisify(client.hget);
 
 
 const exec = mongoose.Query.prototype.exec;
 
-mongoose.Query.prototype.cache = function(){
+mongoose.Query.prototype.cache = function(options={}){
   this.useCache = true;
+  this.hashKey = JSON.stringify(options.key || "");
   return this;
 };
 
@@ -20,8 +21,8 @@ mongoose.Query.prototype.exec =async function () {
     const key = JSON.stringify(Object.assign({},this.getQuery(),{
         collection:this.mongooseCollection.name
     }));
-
-    let cachedData = await client.get(key);
+    console.log("Cache Working")
+    let cachedData = await client.hget(this.hashKey,key);
 
     if(cachedData){
         let cached_doc = JSON.parse(cachedData);
@@ -29,6 +30,13 @@ mongoose.Query.prototype.exec =async function () {
     }
 
     let query_exec = await exec.apply(this,arguments);
-    client.set(key,JSON.stringify(query_exec));
+    client.hset(this.hashKey,key,JSON.stringify(query_exec),"EX",60);
     return query_exec
+};
+function clearHash(hashKey){
+    console.log("Cache Clear: ",hashKey)
+    client.del(JSON.stringify(hashKey));
+}
+module.exports={
+    clearHash:clearHash
 };
